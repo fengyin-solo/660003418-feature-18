@@ -51,7 +51,17 @@
             <option v-for="f in LANGUAGE_FAMILIES" :key="f.id" :value="f.id">{{ f.name }}</option>
           </select>
         </div>
-        <div class="overflow-x-auto max-h-64 overflow-y-auto">
+        <div v-if="activeRoot" class="flex flex-wrap items-center gap-x-4 gap-y-1 mb-3 bg-slate-900 border border-cyan-800/60 rounded px-3 py-2">
+          <span class="text-xs text-slate-500">当前词根</span>
+          <span class="font-mono font-bold text-cyan-300">{{ activeRoot.root }}</span>
+          <span class="text-sm text-slate-300">{{ activeRoot.meaning }}</span>
+          <span class="text-xs text-slate-500">{{ activeRoot.period }}</span>
+          <span v-if="activeFamily" class="flex items-center gap-1 text-xs text-slate-300">
+            <span class="w-2.5 h-2.5 rounded-full" :style="{ backgroundColor: activeFamily.color }"></span>{{ activeFamily.name }}
+          </span>
+          <span class="text-xs px-1.5 py-0.5 rounded border border-slate-600 text-slate-300">主题：{{ activeRoot.theme }}</span>
+        </div>
+        <div ref="tableScrollRef" class="overflow-x-auto max-h-64 overflow-y-auto" @scroll.passive="updateActiveRoot">
           <table class="w-full text-xs">
             <thead class="sticky top-0 bg-slate-700">
               <tr>
@@ -66,7 +76,9 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="cs in store.filteredCognates" :key="cs.root" class="border-t border-slate-700 hover:bg-slate-700">
+              <tr v-for="(cs, i) in store.filteredCognates" :key="cs.root" :data-idx="i"
+                  class="border-t border-slate-700 hover:bg-slate-700"
+                  :class="{ 'bg-cyan-900/20': cs.root === activeRoot?.root }">
                 <td class="px-2 py-1.5 font-mono text-slate-200 font-bold">{{ cs.root }}</td>
                 <td class="px-2 py-1.5 text-slate-400">{{ cs.meaning }}</td>
                 <td class="px-2 py-1.5 font-mono text-cyan-300">{{ cs.languages['英语'] || '—' }}</td>
@@ -75,6 +87,9 @@
                 <td class="px-2 py-1.5 font-mono text-orange-300">{{ cs.languages['西班牙语'] || '—' }}</td>
                 <td class="px-2 py-1.5 font-mono text-purple-300">{{ cs.languages['俄语'] || '—' }}</td>
                 <td class="px-2 py-1.5 font-mono text-yellow-300">{{ cs.languages['拉丁语'] || '—' }}</td>
+              </tr>
+              <tr v-if="!store.filteredCognates.length">
+                <td colspan="8" class="px-2 py-6 text-center text-slate-500">无匹配的词根</td>
               </tr>
             </tbody>
           </table>
@@ -85,13 +100,40 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import * as d3 from 'd3'
 import { useEtymologyStore, LANGUAGE_FAMILIES } from './store/etymology'
+import type { CognateSet } from './types'
 
 const store = useEtymologyStore()
 const svgRef = ref<SVGSVGElement | null>(null)
 const COLORS: Record<string, string> = { ie: '#3b82f6', st: '#22c55e', aa: '#f59e0b', ural: '#8b5cf6' }
+
+// 对照表滚动联动：固定显示当前可视区顶部的词根摘要
+const tableScrollRef = ref<HTMLElement | null>(null)
+const activeRoot = ref<CognateSet | null>(null)
+const activeFamily = computed(() => LANGUAGE_FAMILIES.find(f => f.id === activeRoot.value?.family) || null)
+
+function updateActiveRoot() {
+  const el = tableScrollRef.value
+  const list = store.filteredCognates
+  if (!el || !list.length) { activeRoot.value = null; return }
+  const headH = (el.querySelector('thead') as HTMLElement | null)?.offsetHeight ?? 0
+  const containerTop = el.getBoundingClientRect().top
+  let current = list[0]
+  el.querySelectorAll<HTMLElement>('tbody tr[data-idx]').forEach(row => {
+    if (row.getBoundingClientRect().top - containerTop <= headH + 2) {
+      current = list[Number(row.dataset.idx)] ?? current
+    }
+  })
+  activeRoot.value = current
+}
+
+watch(() => store.filteredCognates, async () => {
+  if (tableScrollRef.value) tableScrollRef.value.scrollTop = 0
+  await nextTick()
+  updateActiveRoot()
+})
 
 function drawGraph() {
   if (!svgRef.value) return
@@ -129,5 +171,5 @@ function drawGraph() {
   })
 }
 
-onMounted(() => { setTimeout(drawGraph, 100) })
+onMounted(() => { setTimeout(drawGraph, 100); updateActiveRoot() })
 </script>
